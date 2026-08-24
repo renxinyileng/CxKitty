@@ -8,6 +8,7 @@ from openai import (
     APIConnectionError,
     APIStatusError,
     APITimeoutError,
+    BadRequestError,
     InternalServerError,
     OpenAI,
     RateLimitError,
@@ -27,6 +28,13 @@ class Provider:
     model: Optional[str] = None  # 默认模型, 为 None 表示必须由用户指定
     need_key: bool = True  # 是否需要 api_key (本地推理服务不需要)
     console: str = ""  # 控制台/文档地址, 用于错误提示
+    # 开启深度思考的参数风格, 各服务商互不兼容:
+    #   effort         顶层 reasoning_effort 字段 (OpenAI / DeepSeek / Kimi / Ollama 等)
+    #   gemini         顶层 reasoning_effort + google.thinking_config 思考预算
+    #   enable_thinking  extra_body 的 enable_thinking + thinking_budget (百炼 / 硅基流动 等)
+    #   thinking_type  extra_body 的 thinking.type (智谱 / 火山方舟 等)
+    thinking_style: Optional[str] = "effort"
+    max_effort: str = "high"  # 该服务商支持的最高思考档位
 
 
 # 常见大模型服务商预设, 均为 OpenAI 兼容接口
@@ -38,33 +46,46 @@ PROVIDERS: dict[str, Provider] = {
         console="https://platform.openai.com/docs/models",
     ),
     "deepseek": Provider(
-        "https://api.deepseek.com/v1/", "deepseek-v4-flash", console="https://platform.deepseek.com"
+        "https://api.deepseek.com/v1/",
+        "deepseek-v4-flash",
+        console="https://platform.deepseek.com",
+        max_effort="max",
     ),
     "moonshot": Provider(
-        "https://api.moonshot.cn/v1/", "moonshot-v1-8k", console="https://platform.moonshot.cn"
+        "https://api.moonshot.cn/v1/",
+        "moonshot-v1-8k",
+        console="https://platform.moonshot.cn",
+        max_effort="max",
     ),
     "qwen": Provider(
         "https://dashscope.aliyuncs.com/compatible-mode/v1/",
         "qwen-plus",
         console="https://bailian.console.aliyun.com",
+        thinking_style="enable_thinking",
     ),
     "zhipu": Provider(
-        "https://open.bigmodel.cn/api/paas/v4/", "glm-4-flash", console="https://open.bigmodel.cn"
+        "https://open.bigmodel.cn/api/paas/v4/",
+        "glm-4-flash",
+        console="https://open.bigmodel.cn",
+        thinking_style="thinking_type",
     ),
     "siliconflow": Provider(
         "https://api.siliconflow.cn/v1/",
         "Qwen/Qwen2.5-7B-Instruct",
         console="https://cloud.siliconflow.cn",
+        thinking_style="enable_thinking",
     ),
     "ark": Provider(
         # 火山方舟 (豆包) 的 model 为推理接入点 id (ep-xxx), 无法预设
         "https://ark.cn-beijing.volces.com/api/v3/",
         console="https://console.volcengine.com/ark",
+        thinking_style="thinking_type",
     ),
     "gemini": Provider(
         "https://generativelanguage.googleapis.com/v1beta/openai/",
         "gemini-2.0-flash",
         console="https://ai.google.dev/gemini-api/docs/openai",
+        thinking_style="gemini",
     ),
     "ollama": Provider(
         "http://localhost:11434/v1/",
@@ -72,6 +93,10 @@ PROVIDERS: dict[str, Provider] = {
         console="https://ollama.com/library",
     ),
 }
+
+# 未配置 temperature 时的取值: 思考模式下不下发 (部分服务商的思考模式不接受该参数),
+# 非思考模式下用 0 以保证作答稳定
+AUTO = "auto"
 
 # 默认提示词
 DEFAULT_SYSTEM_PROMPT = """你是一位答题专家, 只输出答案本身, 不输出解析、推理过程和多余的标点。
@@ -129,6 +154,9 @@ PATT_OPTION_KEY = re.compile(r"^\s*[（(\[【]?([A-Za-z])[)）\]】.、,，:：�
 # 填空题答案行首的空号, 如 "1." "第2空:" "③"
 PATT_BLANK_PREFIX = re.compile(r"^\s*(?:第\s*\d+\s*[空题]?\s*[).、:：]?|\d+\s*[).、:：]|[①-⑳])\s*")
 
+# 内联思考块, 部分本地模型/中转站不走 reasoning_content 字段而是直接混在正文里
+PATT_THINK_BLOCK = re.compile(r"<(think|thinking|thought)>.*?(</\1>|$)", re.S | re.I)
+
 # 判断题否定/肯定表述
 PATT_FALSE = re.compile(r"(错误|不对|不正确|错|否|false|×|✗)", re.I)
 PATT_TRUE = re.compile(r"(正确|对|是|true|√|✓)", re.I)
@@ -147,14 +175,19 @@ class OpenAISearcher(SearcherBase):
     PROVIDER = "openai"  # 子类通过覆盖该字段即可派生出各服务商的答题器
 
     client: OpenAI
+    preset: Provider
     model: str
     system_prompt: str
     prompt: str
-    temperature: Optional[float]
+    temperature: Optional[float] | str
     max_tokens: Optional[int]
     timeout: float
     max_retries: int
     few_shot: bool
+    thinking: bool
+    thinking_effort: str
+    thinking_budget: Optional[int]
+    extra_body: dict
     cache: Optional[dict[str, str]]
 
     def __init__(
@@ -165,11 +198,15 @@ class OpenAISearcher(SearcherBase):
         model: Optional[str] = None,  # 留空则取服务商预设模型
         system_prompt: Optional[str] = None,
         prompt: Optional[str] = None,
-        temperature: Optional[float] = 0.0,  # 答题场景需要稳定输出, 置 null 可不下发该参数
+        temperature: Optional[float] | str = AUTO,  # 留空自动, 置 null 则不下发该参数
         max_tokens: Optional[int] = None,
-        timeout: float = 30.0,
+        timeout: float = 60.0,  # 单次请求超时, 同时也是思考时长的硬上限
         max_retries: int = 2,  # 网络错误/限速时的重试次数
         few_shot: bool = True,  # 是否附带同题型的单样本示例
+        thinking: bool = True,  # 是否开启深度思考 (默认开到服务商支持的最高档位)
+        thinking_effort: Optional[str] = None,  # 思考档位, 留空取服务商最高档
+        thinking_budget: Optional[int] = 2048,  # 思考链最大 token 数, null 为不限制
+        extra_body: Optional[dict] = None,  # 透传给接口的额外参数, 优先级最高
         cache: bool = True,  # 是否缓存同一题目的作答结果
     ) -> None:
         super().__init__()
@@ -189,6 +226,7 @@ class OpenAISearcher(SearcherBase):
             base_url=base_url or preset.base_url,
             max_retries=0,
         )
+        self.preset = preset
         self.model = model
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.prompt = prompt or DEFAULT_PROMPT
@@ -197,6 +235,12 @@ class OpenAISearcher(SearcherBase):
         self.timeout = timeout
         self.max_retries = max_retries
         self.few_shot = few_shot
+        self.thinking = thinking and preset.thinking_style is not None
+        self.thinking_effort = thinking_effort or preset.max_effort
+        self.thinking_budget = thinking_budget
+        self.extra_body = extra_body or {}
+        # 接口拒绝思考参数 (模型不支持) 时置否, 之后不再重复下发
+        self.__thinking_available = True
         self.cache = {} if cache else None
 
     def invoke(self, question: QuestionModel) -> SearcherResp:
@@ -281,42 +325,122 @@ class OpenAISearcher(SearcherBase):
         messages.append({"role": "user", "content": content})
         return messages
 
-    def __request(self, question: QuestionModel, content: str) -> str:
-        """请求大模型, 对网络错误与限速做指数退避重试"""
+    def __thinking_params(self) -> tuple[dict, dict]:
+        """按服务商风格构造开启深度思考的参数
+        Returns:
+            dict, dict: 顶层参数, extra_body 参数
+        """
+        budget = self.thinking_budget
+        match self.preset.thinking_style:
+            case "effort":
+                return {"reasoning_effort": self.thinking_effort}, {}
+            case "gemini":
+                extra = (
+                    {"extra_body": {"google": {"thinking_config": {"thinking_budget": budget}}}}
+                    if budget
+                    else {}
+                )
+                return {"reasoning_effort": self.thinking_effort}, extra
+            case "enable_thinking":
+                extra = {"enable_thinking": True}
+                if budget:
+                    extra["thinking_budget"] = budget
+                return {}, extra
+            case "thinking_type":
+                return {}, {"thinking": {"type": "enabled"}}
+            case _:
+                return {}, {}
+
+    def __build_params(self, question: QuestionModel, content: str, thinking: bool) -> dict:
+        """构造请求参数
+        Args:
+            question: 题目数据模型
+            content: 提问内容
+            thinking: 本次请求是否开启深度思考
+        """
         params = {
             "model": self.model,
             "messages": self.__build_messages(question, content),
-            "timeout": self.timeout,
+            "timeout": self.timeout,  # 兜住思考时长, 超时即中断请求
         }
-        # 部分推理模型不接受 temperature/max_tokens, 配置为 null 即不下发
-        if self.temperature is not None:
-            params["temperature"] = self.temperature
+        extra_body = {}
+        if thinking:
+            thinking_params, thinking_extra = self.__thinking_params()
+            params.update(thinking_params)
+            extra_body.update(thinking_extra)
+
+        # temperature 留空时自动决定: 思考模式下不下发 (部分服务商的思考模式不接受该参数)
+        temperature = self.temperature
+        if temperature == AUTO:
+            temperature = None if thinking else 0.0
+        if temperature is not None:
+            params["temperature"] = temperature
         if self.max_tokens is not None:
             params["max_tokens"] = self.max_tokens
 
-        for retry in range(self.max_retries + 1):
+        extra_body.update(self.extra_body)  # 用户显式配置的参数优先级最高
+        if extra_body:
+            params["extra_body"] = extra_body
+        return params
+
+    def __request(self, question: QuestionModel, content: str) -> str:
+        """请求大模型, 对网络错误与限速做指数退避重试
+        模型不支持思考参数或思考超时时, 自动降级为非思考模式重试
+        """
+        retry = 0
+        degrade = 0  # 降级重试次数, 不计入 max_retries
+        degrade_thinking = False
+        while True:
+            thinking = self.thinking and self.__thinking_available and not degrade_thinking
+            params = self.__build_params(question, content, thinking)
             try:
                 resp = self.client.chat.completions.create(**params)
-                return (resp.choices[0].message.content or "").strip()
-            except (
-                APIConnectionError,
-                APITimeoutError,
-                RateLimitError,
-                InternalServerError,
-            ) as err:
+                answer = (resp.choices[0].message.content or "").strip()
+                # 思考内容内联在正文里时需要剔除
+                answer = PATT_THINK_BLOCK.sub("", answer).strip()
+                if not answer and thinking and degrade < 2:
+                    # 思考链占满了输出预算, 没留下答案
+                    degrade += 1
+                    degrade_thinking = True
+                    self.logger.warning("思考未产出答案, 改用非思考模式重试")
+                    continue
+                return answer
+            except APITimeoutError:
+                # 思考耗时超过 timeout, 先降级为非思考模式再走常规重试
+                if thinking and degrade < 2:
+                    degrade += 1
+                    degrade_thinking = True
+                    self.logger.warning(f"思考超时 (>{self.timeout}s), 改用非思考模式重试")
+                    continue
                 if retry >= self.max_retries:
                     raise
-                delay = 2.0**retry
-                self.logger.warning(
-                    f"请求失败 ({err.__class__.__name__}), {delay}s 后重试 {retry + 1}/{self.max_retries}"
-                )
-                time.sleep(delay)
+                retry += 1
+                self.__backoff(retry, "APITimeoutError")
+            except BadRequestError as err:
+                # 模型不支持思考参数, 关闭后重试, 并记住不再下发
+                if thinking and degrade < 2:
+                    degrade += 1
+                    self.__thinking_available = False
+                    self.logger.warning(f"模型不支持思考参数, 已关闭深度思考: {err}")
+                    continue
+                raise
+            except (APIConnectionError, RateLimitError, InternalServerError) as err:
+                if retry >= self.max_retries:
+                    raise
+                retry += 1
+                self.__backoff(retry, err.__class__.__name__)
             except APIStatusError as err:
                 # 4xx 多为鉴权/参数错误, 重试无意义
                 if err.status_code < 500 or retry >= self.max_retries:
                     raise
-                time.sleep(2.0**retry)
-        raise RuntimeError("重试次数耗尽")
+                retry += 1
+                self.__backoff(retry, err.__class__.__name__)
+
+    def __backoff(self, retry: int, reason: str) -> None:
+        """重试前的指数退避"""
+        delay = 2.0 ** (retry - 1)
+        self.logger.warning(f"请求失败 ({reason}), {delay}s 后重试 {retry}/{self.max_retries}")
+        time.sleep(delay)
 
     def __normalize_answer(self, question: QuestionModel, raw_answer: str) -> str:
         """将模型返回归一化为 QuestionResolver 能匹配的答案形式

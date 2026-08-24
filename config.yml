@@ -151,12 +151,17 @@ searchers:
   # 以下为全部可选项 (对上述所有答题器通用), 不填即用括号内默认值
   # - type: DeepSeekSearcher
   #   api_key: "sk-xxx"
-  #   temperature: 0.0  # 采样温度 (0)，部分推理模型不接受该参数，填 null 即不下发
+  #   thinking: true  # 是否开启深度思考, 默认开到该服务商支持的最高档位 (true)
+  #   thinking_effort: "high"  # 思考档位, 留空即取最高档 (OpenAI/Gemini 最高 high, DeepSeek/Kimi 最高 max)
+  #   thinking_budget: 2048  # 思考链最大 token 数, null 为不限制 (2048)
+  #                          # 仅百炼/硅基流动/Gemini 支持按 token 限制, 其余服务商靠 timeout 兜底
+  #   timeout: 60  # 单次请求超时秒数, 也是思考时长的硬上限, 超时自动改用非思考模式重试 (60)
+  #   temperature: null  # 采样温度, 留空自动 (思考时不下发, 非思考时为 0)；填数值则始终下发
   #   max_tokens: null  # 最大回复长度 (null 不限制)
-  #   timeout: 30  # 单次请求超时秒数 (30)
   #   max_retries: 2  # 网络错误/限速时的重试次数, 指数退避 (2)
   #   few_shot: true  # 是否附带同题型的作答示例, 可提升小模型的格式遵循度 (true)
   #   cache: true  # 是否缓存同一道题的作答结果, 避免重复计费 (true)
+  #   extra_body: {}  # 透传给接口的额外参数, 优先级最高, 可覆盖上面自动生成的思考参数
   #   # 以下两项留空即使用内置提示词
   #   system_prompt: "你是一位答题专家, 只输出答案本身, 不输出解析、推理过程和多余的标点。"
   #   prompt: "请回答这个{type}：\n{value}\n{options}"
@@ -164,3 +169,4 @@ searchers:
   # # {value}：题干
   # # {options}：选项文本（eg:"选项：\nA. assurance\nB. insurance"），判断题等无选项题型为空，填空题为空的数量
   # # 提问时会自动追加该题型的作答格式要求，模型返回的字母选项/对错表述会被自动还原为选项原文，无需自行处理
+  # # 模型不支持思考参数时会自动关闭深度思考并重试，无需手动关闭
