@@ -62,6 +62,7 @@ poetry export -f requirements.txt --without-hashes -o requirements.txt
 ### 决策层 resolver/
 
 - `question.py` `QuestionResolver` 消费任意 `QAQDtoBase` 迭代器: 取题 → 调搜索器 → 用 `difflib` 做选项模糊匹配 → 回填提交, 匹配失败时可按配置走 fuzzer 兜底并把未完成题目导出为 json。
+- `searcher/__init__.py` `MultiSearcherWraper` 负责**调度**: 搜索器按 `SearcherBase.IS_AI` 分成题库组与 AI 组 (`LLMSearcherBase.IS_AI = True`), 先并行跑题库组, 用 `llm/answer.py` 的 `answerable()` 判断题库答案是否真能用于作答 (比 `fill()` 宽松, 判否则 `fill()` 必然也填不上); 题库没有可用答案才并行跑 AI 组, 再按归一化后的答案分组投票, 达到票数的结果排到列表最前 (`QuestionResolver.fill()` 取第一个能匹配的结果)。策略来自 `config.yml` 的 `searcher_policy` → `config.SEARCHER_POLICY` → `SearcherPolicy`。
 - 搜索器是插件式的: `SearcherBase.invoke(question) -> SearcherResp` 是唯一契约, `question.py` 顶部的 `SEARCHERS` 字典把类名映射到实现, `load_searcher()` 依据 `config.yml` 的 `searchers[].type` 动态实例化 (其余 key 直接作为构造参数)。**新增题库后端 = 实现 `SearcherBase` → 注册进 `SEARCHERS` → 在 `config.yml` 补注释示例 → README 补说明**, 四处缺一会导致配置项无法被识别。
 - 现有实现: `json.py` (本地 JSON)、`sqlite.py` (本地库)、`restapi.py` (通用 REST + Enncy/网课小工具/题库海/冷月/Muke/柠檬等第三方)、`llm/` (OpenAI 兼容大模型在线答题)。
 - `llm/` 是**一个服务商一个模块**: `base.py` `LLMSearcherBase` 负责请求/重试/降级/缓存, `prompt.py` 管提问 (提示词模板、各题型作答格式要求、单样本示例), `answer.py` 管答案归一化; `deepseek.py` / `qwen.py` / `zhipu.py` 等只声明 `BASE_URL` / `DEFAULT_MODEL` / `MAX_EFFORT` / `TEMPERATURE_WITH_THINKING` 几个类字段并实现 `thinking_params()`。**新增服务商 = 复制一份 `deepseek.py` 改这几处 → 注册进 `llm/__init__.py` 的 `PROVIDERS` 与 `question.py` 的 `SEARCHERS` → config.yml 与 README 补说明**。`OpenAISearcher.__new__` 里有一段派发, 用于兼容 `type: OpenAISearcher` + `provider: deepseek` 的写法。

@@ -59,6 +59,26 @@ def normalize(question: QuestionModel, raw_answer: str) -> str:
             return raw_answer
 
 
+def answerable(question: QuestionModel, text: Optional[str]) -> bool:
+    """判断一段答案文本是否真的能用于作答 (能与该题的选项/题型对上)
+    比 QuestionResolver.fill() 的匹配更宽松, 因此这里判否时 fill() 必然也填不上,
+    用于识别"题库虽然返回了内容, 但根本用不了"的情况
+    """
+    if not text or not text.strip():
+        return False
+    match question.type:
+        case QuestionType.单选题:
+            return match_option(question.options, text) is not None
+        case QuestionType.多选题:
+            return bool(match_multi_options(question.options, text))
+        case QuestionType.判断题:
+            return normalize(question, text) in ("正确", "错误")
+        case QuestionType.填空题:
+            return bool(split_blanks(question, text))
+        case _:
+            return True
+
+
 def match_option(options: dict[str, str], text: str) -> Optional[str]:
     """将一段作答文本匹配到唯一选项, 返回选项原文
     依次尝试: 选项字母 -> 选项原文包含 -> 编辑距离最相似的选项

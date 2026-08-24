@@ -45,6 +45,8 @@ class LLMSearcherBase(SearcherBase):
         thinking_params(): 构造开启深度思考的参数, 各服务商互不兼容
     """
 
+    IS_AI = True  # 归入 AI 组, 题库查不到时才调用
+
     BASE_URL: str = ""
     DEFAULT_MODEL: Optional[str] = None
     NEED_KEY: bool = True

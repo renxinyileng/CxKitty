@@ -62,8 +62,25 @@ exam:
 
 # --------------------
 
+# 搜索器调度策略 (下面 searchers 里配置的搜索器按此策略调度)
+searcher_policy:
+  # 同一组内的搜索器是否并行请求 (题库组、AI 组各自并行)
+  parallel: true
+  # 并行线程数上限
+  max_workers: 8
+  # 题库优先: 题库查到可用答案就直接采用, 不再请求 AI (省 token)
+  # 题库虽有返回但答案与选项对不上时, 视为没查到, 仍会转交 AI
+  prefer_bank: true
+  # 多个 AI 的作答是否交叉对比 (只对 AI 组生效, 题库组不参与投票)
+  ai_consensus: true
+  # 至少多少个 AI 给出相同答案才采信该答案
+  ai_min_votes: 2
+  # 达不到票数时的处理: first=仍用第一个成功结果, none=放弃作答 (交给 fuzzer / 计入未完成)
+  ai_fallback: "first"
+
 # 搜索器选择 (可同时使用多个搜索器, 以 yaml 语法中 list 格式添加, `type`字段决定搜索器类型)
-# 可用的搜索器有: restApiSearcher jsonFileSearcher sqliteSearcher enncySearcher cxSearcher LemonSearcher OpenAISearcher
+# 可用的搜索器有: restApiSearcher jsonFileSearcher sqliteSearcher enncySearcher cxSearcher LemonSearcher
+#                 以及大模型答题器 OpenAISearcher DeepSeekSearcher 等 (见文件末尾)
 searchers:
   # 本地 JSON 数据库搜索器 (key为题, value为答案)
   # - type: jsonFileSearcher
