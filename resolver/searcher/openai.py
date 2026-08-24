@@ -1,6 +1,7 @@
 import difflib
 import re
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 from openai import (
@@ -16,6 +17,61 @@ from cxapi.schema import QuestionModel, QuestionType
 from logger import Logger
 
 from . import SearcherBase, SearcherResp
+
+
+@dataclass
+class Provider:
+    """大模型服务商预设"""
+
+    base_url: str  # OpenAI 兼容接口地址
+    model: Optional[str] = None  # 默认模型, 为 None 表示必须由用户指定
+    need_key: bool = True  # 是否需要 api_key (本地推理服务不需要)
+    console: str = ""  # 控制台/文档地址, 用于错误提示
+
+
+# 常见大模型服务商预设, 均为 OpenAI 兼容接口
+# 默认模型仅为开箱可用的建议值, 服务商下线模型后按 config.yml 的 model 字段覆盖即可
+PROVIDERS: dict[str, Provider] = {
+    "openai": Provider(
+        "https://api.openai.com/v1/",
+        "gpt-4o-mini",
+        console="https://platform.openai.com/docs/models",
+    ),
+    "deepseek": Provider(
+        "https://api.deepseek.com/v1/", "deepseek-v4-flash", console="https://platform.deepseek.com"
+    ),
+    "moonshot": Provider(
+        "https://api.moonshot.cn/v1/", "moonshot-v1-8k", console="https://platform.moonshot.cn"
+    ),
+    "qwen": Provider(
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/",
+        "qwen-plus",
+        console="https://bailian.console.aliyun.com",
+    ),
+    "zhipu": Provider(
+        "https://open.bigmodel.cn/api/paas/v4/", "glm-4-flash", console="https://open.bigmodel.cn"
+    ),
+    "siliconflow": Provider(
+        "https://api.siliconflow.cn/v1/",
+        "Qwen/Qwen2.5-7B-Instruct",
+        console="https://cloud.siliconflow.cn",
+    ),
+    "ark": Provider(
+        # 火山方舟 (豆包) 的 model 为推理接入点 id (ep-xxx), 无法预设
+        "https://ark.cn-beijing.volces.com/api/v3/",
+        console="https://console.volcengine.com/ark",
+    ),
+    "gemini": Provider(
+        "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "gemini-2.0-flash",
+        console="https://ai.google.dev/gemini-api/docs/openai",
+    ),
+    "ollama": Provider(
+        "http://localhost:11434/v1/",
+        need_key=False,
+        console="https://ollama.com/library",
+    ),
+}
 
 # 默认提示词
 DEFAULT_SYSTEM_PROMPT = """你是一位答题专家, 只输出答案本身, 不输出解析、推理过程和多余的标点。
@@ -88,6 +144,8 @@ class SafeFormatDict(dict):
 class OpenAISearcher(SearcherBase):
     """大模型在线答题器 (OpenAI 兼容接口)"""
 
+    PROVIDER = "openai"  # 子类通过覆盖该字段即可派生出各服务商的答题器
+
     client: OpenAI
     model: str
     system_prompt: str
@@ -101,9 +159,10 @@ class OpenAISearcher(SearcherBase):
 
     def __init__(
         self,
-        api_key: str,
-        base_url: str = "https://api.openai.com/v1/",
-        model: str = "gpt-4o-mini",
+        api_key: Optional[str] = None,
+        provider: Optional[str] = None,  # 服务商预设, 见 PROVIDERS
+        base_url: Optional[str] = None,  # 留空则取服务商预设地址
+        model: Optional[str] = None,  # 留空则取服务商预设模型
         system_prompt: Optional[str] = None,
         prompt: Optional[str] = None,
         temperature: Optional[float] = 0.0,  # 答题场景需要稳定输出, 置 null 可不下发该参数
@@ -114,9 +173,22 @@ class OpenAISearcher(SearcherBase):
         cache: bool = True,  # 是否缓存同一题目的作答结果
     ) -> None:
         super().__init__()
-        self.logger = Logger("OpenAISearcher")
+        name = (provider or self.PROVIDER).lower()
+        if name not in PROVIDERS:
+            raise ValueError(f"未知的大模型服务商 {name}, 可用: {', '.join(PROVIDERS)}")
+        preset = PROVIDERS[name]
+        if preset.need_key and not api_key:
+            raise ValueError(f"{name} 需要配置 api_key, 请前往 {preset.console} 获取")
+        if not (model := model or preset.model):
+            raise ValueError(f"{name} 未预设默认模型, 请在 config.yml 指定 model ({preset.console})")
+
+        self.logger = Logger(f"{self.__class__.__name__}")
         # 关闭 SDK 自带重试, 由本类统一控制重试与退避
-        self.client = OpenAI(api_key=api_key, base_url=base_url, max_retries=0)
+        self.client = OpenAI(
+            api_key=api_key or "EMPTY",  # 本地推理服务不校验 key, 但 SDK 要求非空
+            base_url=base_url or preset.base_url,
+            max_retries=0,
+        )
         self.model = model
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.prompt = prompt or DEFAULT_PROMPT
@@ -344,3 +416,56 @@ class OpenAISearcher(SearcherBase):
             if len(parts) == blank_amount:
                 blanks = parts
         return "#".join(blanks)
+
+
+# ---- 常见服务商答题器 ----
+# 均为 OpenAI 兼容接口, 仅预设了 base_url 与默认模型,
+# 其余配置项与 OpenAISearcher 完全一致, 也可用 OpenAISearcher + provider 字段等价配置
+
+
+class DeepSeekSearcher(OpenAISearcher):
+    """DeepSeek 答题器 https://platform.deepseek.com"""
+
+    PROVIDER = "deepseek"
+
+
+class MoonshotSearcher(OpenAISearcher):
+    """月之暗面 Kimi 答题器 https://platform.moonshot.cn"""
+
+    PROVIDER = "moonshot"
+
+
+class QwenSearcher(OpenAISearcher):
+    """阿里通义千问 (百炼) 答题器 https://bailian.console.aliyun.com"""
+
+    PROVIDER = "qwen"
+
+
+class ZhipuSearcher(OpenAISearcher):
+    """智谱 GLM 答题器 https://open.bigmodel.cn"""
+
+    PROVIDER = "zhipu"
+
+
+class SiliconFlowSearcher(OpenAISearcher):
+    """硅基流动答题器 https://cloud.siliconflow.cn"""
+
+    PROVIDER = "siliconflow"
+
+
+class ArkSearcher(OpenAISearcher):
+    """火山方舟 (豆包) 答题器, model 需填写推理接入点 id https://console.volcengine.com/ark"""
+
+    PROVIDER = "ark"
+
+
+class GeminiSearcher(OpenAISearcher):
+    """Google Gemini 答题器 (OpenAI 兼容端点) https://ai.google.dev/gemini-api/docs/openai"""
+
+    PROVIDER = "gemini"
+
+
+class OllamaSearcher(OpenAISearcher):
+    """本地 Ollama 答题器, 无需 api_key, model 需填写已拉取的模型名 https://ollama.com/library"""
+
+    PROVIDER = "ollama"

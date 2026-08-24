@@ -27,7 +27,17 @@ from logger import Logger
 from .searcher import MultiSearcherWraper, SearcherResp
 
 from .searcher.json import JsonFileSearcher
-from .searcher.openai import OpenAISearcher
+from .searcher.openai import (
+    ArkSearcher,
+    DeepSeekSearcher,
+    GeminiSearcher,
+    MoonshotSearcher,
+    OllamaSearcher,
+    OpenAISearcher,
+    QwenSearcher,
+    SiliconFlowSearcher,
+    ZhipuSearcher,
+)
 from .searcher.restapi import (
     CxSearcher,
     EnncySearcher,
@@ -53,6 +63,14 @@ SEARCHERS = {
     "JsonApiSearcher": JsonApiSearcher,
     "LemonSearcher": LemonSearcher,
     "OpenAISearcher": OpenAISearcher,
+    "DeepSeekSearcher": DeepSeekSearcher,
+    "MoonshotSearcher": MoonshotSearcher,
+    "QwenSearcher": QwenSearcher,
+    "ZhipuSearcher": ZhipuSearcher,
+    "SiliconFlowSearcher": SiliconFlowSearcher,
+    "ArkSearcher": ArkSearcher,
+    "GeminiSearcher": GeminiSearcher,
+    "OllamaSearcher": OllamaSearcher,
 }
 
 

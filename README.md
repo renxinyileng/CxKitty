@@ -37,7 +37,7 @@
   - ✅自动过滤题干和选项中的空白 Unicode 字符，eg：u+2002、u+200b、u+3000
   - ✅遇到匹配失败的题，可使用 fuzzer 方式填充答案并提交（默认关闭）
   - ✅章节测验试题 / 课程考试可完整导出，信息全、无加密无乱码，可导出临时保存的答案，现支持 json 格式
-  - ✅自动答题功能需要至少一种的 **题库后端** 支持，现支持`REST API`、`JSON`、`SQLite`三种类型的 **题库后端**，同时已适配`Enncy`、`网课小工具（Go题）`、`题库海`、`冷月题库`、`Muke题库`、`柠檬题库`六种第三方题库，同时支持 `大模型在线答题`（OpenAI 兼容接口），可并行搜索，择优匹配答案（建议使用自建题库）
+  - ✅自动答题功能需要至少一种的 **题库后端** 支持，现支持`REST API`、`JSON`、`SQLite`三种类型的 **题库后端**，同时已适配`Enncy`、`网课小工具（Go题）`、`题库海`、`冷月题库`、`Muke题库`、`柠檬题库`六种第三方题库，同时支持 `大模型在线答题`（OpenAI 兼容接口，已内置 DeepSeek、Kimi、通义千问、智谱、硅基流动、Gemini、火山方舟、本地 Ollama 预设），可并行搜索，择优匹配答案（建议使用自建题库）
   - ✅`REST API`类型 **题库后端** （用户接口）支持使用 [JsonPath](https://goessner.net/articles/JsonPath/) 语法进行答案字段提取，允许用户注入 HTTP header 和 params 依赖字段
   - ✅日志中将记录未完成的题目，并自动导出未完成的题目到 json
 
@@ -248,15 +248,32 @@ Enncy 题库，使用前请注册并获取 Token 填写在配置文件中（第�
 
 大模型在线答题，使用前请注册并获取 API Key 填写在配置文件中
 
-可以考虑换成一些 GPT 代理站点，或考虑使用**超高性价比新兴国产开源大模型** [DeepSeek](https://platform.deepseek.com/docs)。
+可以考虑使用**超高性价比新兴国产开源大模型** [DeepSeek](https://platform.deepseek.com/docs)，或任意 GPT 代理站点。
 
-DeepSeek 使用与 OpenAI 兼容的 API 格式，只需修改 `base_url` 和 `model` 即可使用。
+特别注意，尽管国产大模型性价比极高且中文能力相当强，但**知识储备与专业领域的覆盖仍然有限**，作答结果建议自行抽查。
 
-特别注意，尽管 DeepSeek 性价比极高且中文能力相当强，但它的**知识储备不足**且**在部分领域受到较大限制**。
+常见服务商已内置 `base_url` 与默认模型，配置文件里只填 `api_key` 即可用：
 
-可在此处查看：[DeepSeek 模型列表](https://platform.deepseek.com/api-docs/zh-cn/#%E6%A8%A1%E5%9E%8B)、[GPT 模型列表](https://platform.openai.com/docs/models)。
+| `type` | 服务商 | 获取 Key | 默认模型 |
+| --- | --- | --- | --- |
+| `DeepSeekSearcher` | 深度求索 DeepSeek | <https://platform.deepseek.com> | `deepseek-v4-flash` |
+| `MoonshotSearcher` | 月之暗面 Kimi | <https://platform.moonshot.cn> | `moonshot-v1-8k` |
+| `QwenSearcher` | 阿里通义千问（百炼） | <https://bailian.console.aliyun.com> | `qwen-plus` |
+| `ZhipuSearcher` | 智谱 GLM | <https://open.bigmodel.cn> | `glm-4-flash` |
+| `SiliconFlowSearcher` | 硅基流动 | <https://cloud.siliconflow.cn> | `Qwen/Qwen2.5-7B-Instruct` |
+| `GeminiSearcher` | Google Gemini | <https://ai.google.dev> | `gemini-2.0-flash` |
+| `ArkSearcher` | 火山方舟（豆包） | <https://console.volcengine.com/ark> | 需填推理接入点 id (`ep-xxx`) |
+| `OllamaSearcher` | 本地 Ollama | 无需 Key | 需填已拉取的模型名 |
 
-支持全部 OpenAI 兼容接口，除 `api_key` 外的配置项均有默认值，`system_prompt` / `prompt` 留空即使用内置提示词。
+```yaml
+searchers:
+  - type: DeepSeekSearcher
+    api_key: "sk-xxx"
+```
+
+模型名以服务商文档为准，预设模型下线时用 `model` 字段覆盖即可；上述服务商也可用
+`OpenAISearcher` + `provider` 字段等价配置。其余中转站、私有部署等任意 OpenAI 兼容服务，
+仍用 `OpenAISearcher` 自行填写 `base_url` 与 `model`。
 
 答题器会按题型自动追加作答格式要求（单选回复选项字母、多选回复字母连写、判断回复正确/错误、填空每空一行），
 并把模型返回的选项字母、`不正确` 之类的表述还原成 **题库后端** 约定的答案形式，因此模型无需输出选项原文即可命中。

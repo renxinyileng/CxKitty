@@ -122,17 +122,41 @@ searchers:
   # - type: LemonSearcher
   #   token: "xxx"
 
-  # 大模型在线答题 (OpenAI 兼容接口)，可以考虑使用超高性价比新兴国产开源大模型 [DeepSeek](https://platform.deepseek.com/docs)
+  # 大模型在线答题 (OpenAI 兼容接口)
+  # 通用写法: 自行填写 base_url 与 model, 可对接任意 OpenAI 兼容服务 (含各类中转站)
   # - type: OpenAISearcher
   #   api_key: "sk-xxx"  # API Key (必填)
   #   base_url: "https://api.openai.com/v1/"  # API URL
   #   model: "gpt-4o-mini"  # 使用的模型型号
-  #   temperature: 0.0  # 采样温度，答题场景建议为 0；部分推理模型不接受该参数，填 null 即不下发
-  #   max_tokens: null  # 最大回复长度，null 为不限制
-  #   timeout: 30  # 单次请求超时 (秒)
-  #   max_retries: 2  # 网络错误/限速时的重试次数 (指数退避)
-  #   few_shot: true  # 是否附带同题型的作答示例，可提升小模型的格式遵循度
-  #   cache: true  # 是否缓存同一道题的作答结果，避免重复计费
+  #
+  # 常见服务商已预设 base_url 与默认模型, 只填 api_key 即可用, model 可按需覆盖:
+  #   DeepSeekSearcher     深度求索      https://platform.deepseek.com        默认 deepseek-v4-flash
+  #   MoonshotSearcher     月之暗面 Kimi https://platform.moonshot.cn         默认 moonshot-v1-8k
+  #   QwenSearcher         通义千问/百炼 https://bailian.console.aliyun.com   默认 qwen-plus
+  #   ZhipuSearcher        智谱 GLM      https://open.bigmodel.cn             默认 glm-4-flash
+  #   SiliconFlowSearcher  硅基流动      https://cloud.siliconflow.cn         默认 Qwen/Qwen2.5-7B-Instruct
+  #   GeminiSearcher       Google Gemini https://ai.google.dev                默认 gemini-2.0-flash
+  #   ArkSearcher          火山方舟/豆包 https://console.volcengine.com/ark   model 需填推理接入点 id (ep-xxx)
+  #   OllamaSearcher       本地 Ollama   https://ollama.com/library           无需 api_key, model 需填已拉取的模型名
+  # 模型名以服务商文档为准, 预设模型下线时用 model 字段覆盖即可
+  # - type: DeepSeekSearcher
+  #   api_key: "sk-xxx"
+  #   # model: "deepseek-v4-pro"  # 需要更强模型时覆盖
+  #
+  # 也可用 OpenAISearcher + provider 字段等价配置上述服务商
+  # - type: OpenAISearcher
+  #   provider: "deepseek"  # openai/deepseek/moonshot/qwen/zhipu/siliconflow/ark/gemini/ollama
+  #   api_key: "sk-xxx"
+  #
+  # 以下为全部可选项 (对上述所有答题器通用), 不填即用括号内默认值
+  # - type: DeepSeekSearcher
+  #   api_key: "sk-xxx"
+  #   temperature: 0.0  # 采样温度 (0)，部分推理模型不接受该参数，填 null 即不下发
+  #   max_tokens: null  # 最大回复长度 (null 不限制)
+  #   timeout: 30  # 单次请求超时秒数 (30)
+  #   max_retries: 2  # 网络错误/限速时的重试次数, 指数退避 (2)
+  #   few_shot: true  # 是否附带同题型的作答示例, 可提升小模型的格式遵循度 (true)
+  #   cache: true  # 是否缓存同一道题的作答结果, 避免重复计费 (true)
   #   # 以下两项留空即使用内置提示词
   #   system_prompt: "你是一位答题专家, 只输出答案本身, 不输出解析、推理过程和多余的标点。"
   #   prompt: "请回答这个{type}：\n{value}\n{options}"
