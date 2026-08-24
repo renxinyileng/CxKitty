@@ -63,10 +63,10 @@ poetry export -f requirements.txt --without-hashes -o requirements.txt
 
 - `question.py` `QuestionResolver` 消费任意 `QAQDtoBase` 迭代器: 取题 → 调搜索器 → 用 `difflib` 做选项模糊匹配 → 回填提交, 匹配失败时可按配置走 fuzzer 兜底并把未完成题目导出为 json。
 - 搜索器是插件式的: `SearcherBase.invoke(question) -> SearcherResp` 是唯一契约, `question.py` 顶部的 `SEARCHERS` 字典把类名映射到实现, `load_searcher()` 依据 `config.yml` 的 `searchers[].type` 动态实例化 (其余 key 直接作为构造参数)。**新增题库后端 = 实现 `SearcherBase` → 注册进 `SEARCHERS` → 在 `config.yml` 补注释示例 → README 补说明**, 四处缺一会导致配置项无法被识别。
-- 现有实现: `json.py` (本地 JSON)、`sqlite.py` (本地库)、`restapi.py` (通用 REST + Enncy/网课小工具/题库海/冷月/Muke/柠檬等第三方)、`openai.py` (OpenAI 兼容大模型在线答题, 只有 `api_key` 必填, 其余配置项均有默认值)。
-- `openai.py` 顶部的 `PROVIDERS` 是服务商预设表 (base_url / 默认模型 / 是否需要 key / 思考参数风格 `thinking_style` 与最高档位 `max_effort`), 文件末尾的 `DeepSeekSearcher` 等子类只覆盖一个 `PROVIDER` 字段。**新增服务商 = 往 `PROVIDERS` 加一条 → 加一个子类 → 注册进 `SEARCHERS` → config.yml 与 README 补说明**; 服务商换了默认模型名时只需改 `PROVIDERS`。
-- `openai.py` 的关键点是**答案归一化**: 提问时按题型追加作答格式要求, 返回后把选项字母 / `不正确` 之类的表述还原成 `fill()` 能直接匹配的形式 (单选=选项原文, 多选=`#` 连接的选项原文且按选项顺序, 判断=`正确`/`错误`, 填空=`#` 连接各空)。改动 `fill()` 的匹配规则时要同步这里, 否则大模型作答会命中不了。
-- 深度思考默认开到各服务商最高档 (`thinking_budget` 限思考 token, `timeout` 限思考时长)。各家参数互不兼容, 因此 `__request` 带**降级重试**: 接口拒绝思考参数 (`BadRequestError`) 时永久关闭思考, 思考超时或思考占满输出预算 (正文为空) 时本次改用非思考模式重试。新增服务商时若拿不准参数, 让降级逻辑兜底即可。
+- 现有实现: `json.py` (本地 JSON)、`sqlite.py` (本地库)、`restapi.py` (通用 REST + Enncy/网课小工具/题库海/冷月/Muke/柠檬等第三方)、`llm/` (OpenAI 兼容大模型在线答题)。
+- `llm/` 是**一个服务商一个模块**: `base.py` `LLMSearcherBase` 负责请求/重试/降级/缓存, `prompt.py` 管提问 (提示词模板、各题型作答格式要求、单样本示例), `answer.py` 管答案归一化; `deepseek.py` / `qwen.py` / `zhipu.py` 等只声明 `BASE_URL` / `DEFAULT_MODEL` / `MAX_EFFORT` / `TEMPERATURE_WITH_THINKING` 几个类字段并实现 `thinking_params()`。**新增服务商 = 复制一份 `deepseek.py` 改这几处 → 注册进 `llm/__init__.py` 的 `PROVIDERS` 与 `question.py` 的 `SEARCHERS` → config.yml 与 README 补说明**。`OpenAISearcher.__new__` 里有一段派发, 用于兼容 `type: OpenAISearcher` + `provider: deepseek` 的写法。
+- `answer.py` 的关键点是**答案归一化**: 提问时按题型追加作答格式要求, 返回后把选项字母 / `不正确` 之类的表述还原成 `fill()` 能直接匹配的形式 (单选=选项原文, 多选=`#` 连接的选项原文且按选项顺序, 判断=`正确`/`错误`, 填空=`#` 连接各空)。改动 `fill()` 的匹配规则时要同步这里, 否则大模型作答会命中不了。
+- 深度思考默认开到各服务商最高档 (`thinking_budget` 限思考 token, `timeout` 限思考时长)。各家参数互不兼容, 因此 `base.py` 的请求循环带**降级重试**: 接口拒绝思考参数 (`BadRequestError`) 时永久关闭思考, 思考超时或思考占满输出预算 (正文为空) 时本次改用非思考模式重试。新增服务商时若拿不准参数, 让降级逻辑兜底即可。
 - `media.py` / `document.py` 分别模拟视频播放心跳与文档阅读进度。
 
 ### 编排与 TUI

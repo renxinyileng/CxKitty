@@ -27,7 +27,7 @@ from logger import Logger
 from .searcher import MultiSearcherWraper, SearcherResp
 
 from .searcher.json import JsonFileSearcher
-from .searcher.openai import (
+from .searcher.llm import (
     ArkSearcher,
     DeepSeekSearcher,
     GeminiSearcher,

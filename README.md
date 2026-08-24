@@ -287,6 +287,9 @@ searchers:
   不会因为开了思考就答不了题
 - 不想思考可配置 `thinking: false`，想换档位可配置 `thinking_effort`
 
+各服务商的适配代码位于 `resolver/searcher/llm/` 下，**一个服务商一个文件**（`deepseek.py`、`qwen.py`、`zhipu.py` …），只声明接口地址、默认模型与思考参数；
+公共的请求重试、降级与答案归一化在 `base.py` / `answer.py`。某家接口有变动时只需改对应文件。
+
 其余可选配置见 `config.yml` 注释：`temperature`（留空自动：思考时不下发，非思考时为 0）、`max_tokens`、
 `max_retries`（网络错误与限速时指数退避重试）、`few_shot`（附带同题型作答示例）、
 `cache`（缓存同一道题的作答结果，重复题目不再重复计费）、`extra_body`（透传接口参数，优先级最高）。
