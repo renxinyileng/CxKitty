@@ -122,13 +122,21 @@ searchers:
   # - type: LemonSearcher
   #   token: "xxx"
 
-  # ChatGPT 在线答题，可以考虑使用超高性价比新兴国产开源大模型 [DeepSeek](https://platform.deepseek.com/docs)
+  # 大模型在线答题 (OpenAI 兼容接口)，可以考虑使用超高性价比新兴国产开源大模型 [DeepSeek](https://platform.deepseek.com/docs)
   # - type: OpenAISearcher
-  #   base_url: "https://api.openai.com/v1/" # API URL
-  #   api_key: "sk-xxx" # API Key
-  #   model: "gpt-3.5-turbo" # 使用的模型型号
-  #   system_prompt: "你是一位乐于回答问题的专家，每为用户回答一道问题你都会开心地获得5美元小费，对于用户提出的每一道问题，你只需要给出答案，不要输出任何其他的内容。\n对于判断题，只需回复对/错。"
-  #   prompt: "请回答下这个{type}：\n{value}\n{options}" 
+  #   api_key: "sk-xxx"  # API Key (必填)
+  #   base_url: "https://api.openai.com/v1/"  # API URL
+  #   model: "gpt-4o-mini"  # 使用的模型型号
+  #   temperature: 0.0  # 采样温度，答题场景建议为 0；部分推理模型不接受该参数，填 null 即不下发
+  #   max_tokens: null  # 最大回复长度，null 为不限制
+  #   timeout: 30  # 单次请求超时 (秒)
+  #   max_retries: 2  # 网络错误/限速时的重试次数 (指数退避)
+  #   few_shot: true  # 是否附带同题型的作答示例，可提升小模型的格式遵循度
+  #   cache: true  # 是否缓存同一道题的作答结果，避免重复计费
+  #   # 以下两项留空即使用内置提示词
+  #   system_prompt: "你是一位答题专家, 只输出答案本身, 不输出解析、推理过程和多余的标点。"
+  #   prompt: "请回答这个{type}：\n{value}\n{options}"
   # # {type} ：题目类型 (单选题、多选题 等等)
   # # {value}：题干
-  # # {options}：选项文本（eg:"选项：\nA. assurance;B. insurance;C. requirement;D. issure"），如果题目没有选项（如填空题），则为空
+  # # {options}：选项文本（eg:"选项：\nA. assurance\nB. insurance"），判断题等无选项题型为空，填空题为空的数量
+  # # 提问时会自动追加该题型的作答格式要求，模型返回的字母选项/对错表述会被自动还原为选项原文，无需自行处理
