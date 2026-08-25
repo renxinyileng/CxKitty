@@ -1,6 +1,14 @@
 #!/bin/python3
-import json
 import sys
+
+# 配置编辑器需要在 import config 之前处理: config.py 在 import 期就会读取 config.yml,
+# 配置缺失/写坏时会直接抛错, 那正是最需要打开编辑器的时候
+if {"--config", "-c"} & set(sys.argv[1:]):
+    from config_editor import main as config_editor
+
+    sys.exit(config_editor())
+
+import json
 import time
 from os import PathLike
 
@@ -165,7 +173,7 @@ def fuck_task_worker(chap: ChapterContainer):
                     task_point.fetch_attachment()
                 except ChapterNotOpened:
                     if refresh_flag:
-                        chap.refresh_chapter(index-1)
+                        chap.refresh_chapter(index - 1)
                         refresh_flag = False
                         continue
                     else:

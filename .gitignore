@@ -134,4 +134,4 @@ dmypy.json
 session/*.json
 questions.*
 export/*
-faces/*
+faces/*config.yml.bak

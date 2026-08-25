@@ -42,6 +42,7 @@ poetry export -f requirements.txt --without-hashes -o requirements.txt
 
 - `config.yml` 必须存在于当前工作目录: `config.py` 在 import 期读取它, 且 `export_path` / `face_image_path` 无默认值, 缺失会直接抛错。
 - `utils.__version__` 通过读取 `pyproject.toml` 文本解析版本号, 因此程序只能从仓库根目录启动。
+- 配置写错/缺失时可用 `poetry run python3 config_editor.py` 打开可视化编辑器修正 (它不依赖 `config.py`)。
 - 至少配置一个题库后端 (`config.yml` 的 `searchers`), 否则 `load_searcher()` 抛 `AttributeError`。
 
 ## 架构
@@ -75,5 +76,6 @@ poetry export -f requirements.txt --without-hashes -o requirements.txt
 - `main.py` 组织 rich `Layout`, 串起"选会话 → 选课程 → 遍历章节任务点 / 执行考试"的主流程, 并负责任务间的课间等待 (`config.yml` 各任务的 `wait`, 防风控) 与顶层异常兜底。
 - 各 Dto 自带 `refresh_tui()` / rich 渲染协议, 由 `main.py` 塞进对应 Layout 分区, 因此协议层对象也持有自己的 `tui_ctx`。
 - `dialog.py` 提供交互式选择 (登录、会话、班级、考试)。
+- `config_editor.py` 是 config.yml 的控制台可视化编辑器 (`main.py --config` 或直接运行该文件)。它用 ruamel.yaml 做**往返读写以保留注释**, 因此不要改用 pyyaml 回写; 可编辑项由 `SECTIONS` 里的 `Field` 声明式定义, 搜索器参数则用 `inspect.signature` 从构造函数动态取, 新增搜索器无需改编辑器。它**刻意不 import config**, 以便 config.yml 缺失或写坏时仍能打开——`main.py` 里的 `--config` 判断也因此放在 `import config` 之前。
 - `logger.py` 每个模块一个 `Logger(name)`, 日志按会话手机号写入 `config.LOGS_PATH`, 与 TUI 输出分离——排查问题优先看日志文件而非终端。
 - 会话 cookie 以 json 形式持久化在 `config.SESSIONS_PATH` (`utils.sessions_load` / `ck2dict` / `dict2ck`)。
