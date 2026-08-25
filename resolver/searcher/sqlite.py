@@ -19,7 +19,8 @@ class SqliteSearcher(SearcherBase):
         rsp_field: str = "answer",
         table: str = "question",
     ) -> None:
-        self.db = sqlite3.connect(file_path)
+        # 并行请求时搜索器会在工作线程中被调用, 故放开线程校验 (同一搜索器不会被并发调用)
+        self.db = sqlite3.connect(file_path, check_same_thread=False)
         self.table = table
         self.req_field = req_field
         self.rsp_field = rsp_field

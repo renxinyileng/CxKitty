@@ -62,8 +62,25 @@ exam:
 
 # --------------------
 
+# 搜索器调度策略 (下面 searchers 里配置的搜索器按此策略调度)
+searcher_policy:
+  # 同一组内的搜索器是否并行请求 (题库组、AI 组各自并行)
+  parallel: true
+  # 并行线程数上限
+  max_workers: 8
+  # 题库优先: 题库查到可用答案就直接采用, 不再请求 AI (省 token)
+  # 题库虽有返回但答案与选项对不上时, 视为没查到, 仍会转交 AI
+  prefer_bank: true
+  # 多个 AI 的作答是否交叉对比 (只对 AI 组生效, 题库组不参与投票)
+  ai_consensus: true
+  # 至少多少个 AI 给出相同答案才采信该答案
+  ai_min_votes: 2
+  # 达不到票数时的处理: first=仍用第一个成功结果, none=放弃作答 (交给 fuzzer / 计入未完成)
+  ai_fallback: "first"
+
 # 搜索器选择 (可同时使用多个搜索器, 以 yaml 语法中 list 格式添加, `type`字段决定搜索器类型)
 # 可用的搜索器有: restApiSearcher jsonFileSearcher sqliteSearcher enncySearcher cxSearcher LemonSearcher
+#                 以及大模型答题器 OpenAISearcher DeepSeekSearcher 等 (见文件末尾)
 searchers:
   # 本地 JSON 数据库搜索器 (key为题, value为答案)
   # - type: jsonFileSearcher
@@ -91,7 +108,7 @@ searchers:
   #   ext_params: # 自定义扩展请求参数 (可选) 使用 yaml 的 k-v 语法填写
   #     # eg: Token: 'xxx'
   #   a_field: "$.data"  # 返回参数 使用 JSONPath 语法进行查询
-  
+
   # 本地 sqlite 数据库搜索器
   # - type: sqliteSearcher
   #   file_path: "questions.db"  # 数据库文件路径
@@ -102,10 +119,11 @@ searchers:
   # Enncy 题库搜索器，使用前请注册 https://tk.enncy.cn/
   # - type: enncySearcher
   #   token: "xxx"  # Enncy 题库 Token
-  
+
   # 网课小工具(Go题)题库搜索器，使用前请获取Token https://cx.icodef.com/1-UserGuide/1-6-gettoken.html#%E8%8E%B7%E5%8F%96token
   # - type: cxSearcher
   #   token: "xxx"  # 网课小工具(Go题)题库 Token
+
   # 题库海搜索源， 暂时可不用token 如若搜索失败 https://afdian.net/a/jiaoyu666 购买token
   # - type: TiKuHaiSearcher
   #   token: ***
@@ -116,7 +134,57 @@ searchers:
 
   # Muke题库
   # - type: MukeSearcher
-  
+
   # 柠檬题库搜索器，使用前请注册 https://www.lemtk.xyz 获取token
   # - type: LemonSearcher
   #   token: "xxx"
+
+  # 大模型在线答题 (OpenAI 兼容接口)
+  # 通用写法: 自行填写 base_url 与 model, 可对接任意 OpenAI 兼容服务 (含各类中转站)
+  # - type: OpenAISearcher
+  #   api_key: "sk-xxx"  # API Key (必填)
+  #   base_url: "https://api.openai.com/v1/"  # API URL
+  #   model: "gpt-4o-mini"  # 使用的模型型号
+  #
+  # 常见服务商已预设 base_url 与默认模型, 只填 api_key 即可用, model 可按需覆盖:
+  #   DeepSeekSearcher     深度求索      https://platform.deepseek.com        默认 deepseek-v4-flash
+  #   MoonshotSearcher     月之暗面 Kimi https://platform.moonshot.cn         默认 moonshot-v1-8k
+  #   QwenSearcher         通义千问/百炼 https://bailian.console.aliyun.com   默认 qwen-plus
+  #   ZhipuSearcher        智谱 GLM      https://open.bigmodel.cn             默认 glm-4-flash
+  #   SiliconFlowSearcher  硅基流动      https://cloud.siliconflow.cn         默认 Qwen/Qwen2.5-7B-Instruct
+  #   GeminiSearcher       Google Gemini https://ai.google.dev                默认 gemini-2.0-flash
+  #   ArkSearcher          火山方舟/豆包 https://console.volcengine.com/ark   model 需填推理接入点 id (ep-xxx)
+  #   OllamaSearcher       本地 Ollama   https://ollama.com/library           无需 api_key, model 需填已拉取的模型名
+  # 模型名以服务商文档为准, 预设模型下线时用 model 字段覆盖即可
+  # - type: DeepSeekSearcher
+  #   api_key: "sk-xxx"
+  #   # model: "deepseek-v4-pro"  # 需要更强模型时覆盖
+  #
+  # 也可用 OpenAISearcher + provider 字段等价配置上述服务商
+  # - type: OpenAISearcher
+  #   provider: "deepseek"  # openai/deepseek/moonshot/qwen/zhipu/siliconflow/ark/gemini/ollama
+  #   api_key: "sk-xxx"
+  #
+  # 以下为全部可选项 (对上述所有答题器通用), 不填即用括号内默认值
+  # - type: DeepSeekSearcher
+  #   api_key: "sk-xxx"
+  #   thinking: true  # 是否开启深度思考, 默认开到该服务商支持的最高档位 (true)
+  #   thinking_effort: "high"  # 思考档位, 留空即取最高档 (OpenAI/Gemini 最高 high, DeepSeek/Kimi 最高 max)
+  #   thinking_budget: 2048  # 思考链最大 token 数, null 为不限制 (2048)
+  #                          # 仅百炼/硅基流动/Gemini 支持按 token 限制, 其余服务商靠 timeout 兜底
+  #   timeout: 60  # 单次请求超时秒数, 也是思考时长的硬上限, 超时自动改用非思考模式重试 (60)
+  #   temperature: null  # 采样温度, 留空自动 (思考时不下发, 非思考时为 0)；填数值则始终下发
+  #   max_tokens: null  # 最大回复长度 (null 不限制)
+  #   max_retries: 2  # 网络错误/限速时的重试次数, 指数退避 (2)
+  #   few_shot: true  # 是否附带同题型的作答示例, 可提升小模型的格式遵循度 (true)
+  #   cache: true  # 是否缓存同一道题的作答结果, 避免重复计费 (true)
+  #   extra_body: {}  # 透传给接口的额外参数, 优先级最高, 可覆盖上面自动生成的思考参数
+  #   # 以下两项留空即使用内置提示词
+  #   system_prompt: "你是一位答题专家, 只输出答案本身, 不输出解析、推理过程和多余的标点。"
+  #   prompt: "请回答这个{type}：\n{value}\n{options}"
+  # # {type} ：题目类型 (单选题、多选题 等等)
+  # # {value}：题干
+  # # {options}：选项文本（eg:"选项：\nA. assurance\nB. insurance"），判断题等无选项题型为空，填空题为空的数量
+  # # 提问时会自动追加该题型的作答格式要求，模型返回的字母选项/对错表述会被自动还原为选项原文，无需自行处理
+  # # 模型不支持思考参数时会自动关闭深度思考并重试，无需手动关闭
+  # # 各服务商的适配代码位于 resolver/searcher/llm/ 下，一个服务商一个文件，接口有变动时只需改对应文件

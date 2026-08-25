@@ -44,3 +44,6 @@ DOCUMENT_WAIT: int = DOCUMENT.get("wait", 15)
 
 # 搜索器配置
 SEARCHERS: list = conf.get("searchers", [])
+
+# 搜索器调度策略 (题库优先 / 并行请求 / AI 交叉对比)
+SEARCHER_POLICY: dict = conf.get("searcher_policy", {}) or {}

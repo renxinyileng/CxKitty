@@ -24,9 +24,20 @@ from cxapi.exception import APIError
 from cxapi.schema import QuestionModel, QuestionsExportSchema, QuestionsExportType, QuestionType
 from logger import Logger
 
-from .searcher import MultiSearcherWraper, SearcherResp
+from .searcher import MultiSearcherWraper, SearcherPolicy, SearcherResp
 
 from .searcher.json import JsonFileSearcher
+from .searcher.llm import (
+    ArkSearcher,
+    DeepSeekSearcher,
+    GeminiSearcher,
+    MoonshotSearcher,
+    OllamaSearcher,
+    OpenAISearcher,
+    QwenSearcher,
+    SiliconFlowSearcher,
+    ZhipuSearcher,
+)
 from .searcher.restapi import (
     CxSearcher,
     EnncySearcher,
@@ -51,6 +62,15 @@ SEARCHERS = {
     "MukeSearcher": MukeSearcher,
     "JsonApiSearcher": JsonApiSearcher,
     "LemonSearcher": LemonSearcher,
+    "OpenAISearcher": OpenAISearcher,
+    "DeepSeekSearcher": DeepSeekSearcher,
+    "MoonshotSearcher": MoonshotSearcher,
+    "QwenSearcher": QwenSearcher,
+    "ZhipuSearcher": ZhipuSearcher,
+    "SiliconFlowSearcher": SiliconFlowSearcher,
+    "ArkSearcher": ArkSearcher,
+    "GeminiSearcher": GeminiSearcher,
+    "OllamaSearcher": OllamaSearcher,
 }
 
 
@@ -60,7 +80,16 @@ def load_searcher() -> MultiSearcherWraper:
     Returns:
         MultiSearcherWraper: 多搜索器封装
     """
-    searcher = MultiSearcherWraper()
+    # 加载调度策略 (题库优先 / 并行请求 / AI 交叉对比)
+    try:
+        policy = SearcherPolicy(**config.SEARCHER_POLICY)
+    except TypeError as err:
+        valid = ", ".join(SearcherPolicy.__dataclass_fields__)
+        raise AttributeError(f"searcher_policy 配置有误 ({err}), 可用配置项: {valid}") from err
+    searcher = MultiSearcherWraper(policy)
+    # 检查题库后端配置
+    if not config.SEARCHERS:
+        raise AttributeError("请先配置题库后端再运行，如不需要使用答题功能请修改config.yml进行关闭。")
     # 按需实例化并添加搜索器
     for searcher_conf in config.SEARCHERS:
         typename = searcher_conf["type"]
@@ -142,6 +171,7 @@ class SearchRespShowComp:
                     style="green" if result.code == 0 else "red",
                 ),
                 Text(result.answer, style="cyan", overflow="ellipsis") if result.code == 0 else "",
+                Text(f" ({result.note})", style="yellow") if result.note else "",
             )
 
 

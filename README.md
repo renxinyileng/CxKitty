@@ -37,7 +37,7 @@
   - ✅自动过滤题干和选项中的空白 Unicode 字符，eg：u+2002、u+200b、u+3000
   - ✅遇到匹配失败的题，可使用 fuzzer 方式填充答案并提交（默认关闭）
   - ✅章节测验试题 / 课程考试可完整导出，信息全、无加密无乱码，可导出临时保存的答案，现支持 json 格式
-  - ✅自动答题功能需要至少一种的 **题库后端** 支持，现支持`REST API`、`JSON`、`SQLite`三种类型的 **题库后端**，同时已适配`Enncy`、`网课小工具（Go题）`、`题库海`、`冷月题库`、`Muke题库`、`柠檬题库`六种第三方题库，可并行搜索，择优匹配答案（建议使用自建题库）
+  - ✅自动答题功能需要至少一种的 **题库后端** 支持，现支持`REST API`、`JSON`、`SQLite`三种类型的 **题库后端**，同时已适配`Enncy`、`网课小工具（Go题）`、`题库海`、`冷月题库`、`Muke题库`、`柠檬题库`六种第三方题库，同时支持 `大模型在线答题`（OpenAI 兼容接口，已内置 DeepSeek、Kimi、通义千问、智谱、硅基流动、Gemini、火山方舟、本地 Ollama 预设），题库与 AI 分组并行搜索，题库优先、多个 AI 交叉对比择优（建议使用自建题库）
   - ✅`REST API`类型 **题库后端** （用户接口）支持使用 [JsonPath](https://goessner.net/articles/JsonPath/) 语法进行答案字段提取，允许用户注入 HTTP header 和 params 依赖字段
   - ✅日志中将记录未完成的题目，并自动导出未完成的题目到 json
 
@@ -72,7 +72,7 @@
 
 ### 💻本地化构建项目
 
-使用 Python 版本 >= 3.10.0
+使用 Python 版本 >= 3.10.0（已放宽版本限制, 支持 3.10 / 3.11 / 3.12 / 3.13）
 
 clone 项目到本地，并使用 poetry 安装依赖和管理 venv
 
@@ -166,6 +166,27 @@ docker run -it \
 
 ## 🔨Configuration
 
+### 🖥️可视化配置 (推荐)
+
+不想手写 YAML 可以直接在控制台里改配置：
+
+```bash
+poetry run python3 main.py --config   # 从主程序进入
+poetry run python3 config_editor.py   # 直接运行 (config.yml 缺失或写坏时也能用)
+```
+
+编辑器以菜单方式提供：
+
+- 基本配置、路径、视频 / 章节测验 / 文档 / 考试任务、搜索器调度策略的逐项修改，
+  带中文说明、取值范围校验与枚举选项
+- 题库 / AI 答题器的**添加、编辑、删除**：选类型后按该搜索器的构造参数逐项询问，
+  留空即用默认值；`api_key`、`token` 等字段输入时不回显、列表中打码显示
+- `v` 校验配置：检查调度策略是否合法、各搜索器能否按当前参数正常创建（如漏填 `api_key` 会直接指出）
+- `p` 预览完整配置，`s` 保存
+
+保存时**保留原文件的全部注释与格式**，并自动备份为 `config.yml.bak`；未保存退出会二次确认。
+
+
 ### 主程序配置
 
 配置文件使用 Yaml 语法编写，存放于 [config.yml](config.yml)
@@ -181,6 +202,34 @@ docker run -it \
 人脸识别图片还可以自定义，要求图片文件名以 puid 命名，存放于`face_image_path`配置的路径下，但需要注意将`fetch_uploaded_face`设置为`false`，否则登录成功后会被覆盖
 
 也可以为每个自定义一组多张人脸图片，图片以 puid+序号 命名（eg：`114514_1.jpg`、`114514_2.jpg`），程序中使用正则`/\d+(_d+)?\.jpg/`遍历筛选，需要识别人脸时会从这组图片中随机抽取一张并上传
+
+### 搜索器调度策略
+
+配置文件的 `searcher_policy` 决定多个搜索器怎么配合，默认策略为**题库优先 + AI 交叉对比**：
+
+```yaml
+searcher_policy:
+  parallel: true        # 同一组内的搜索器并行请求 (题库组、AI 组各自并行)
+  max_workers: 8        # 并行线程数上限
+  prefer_bank: true     # 题库查到可用答案就直接采用, 不再请求 AI (省 token)
+  ai_consensus: true    # 多个 AI 的作答交叉对比
+  ai_min_votes: 2       # 至少几个 AI 给出相同答案才采信
+  ai_fallback: "first"  # 达不到票数时: first=仍用第一个成功结果, none=放弃作答
+```
+
+一道题的处理顺序：
+
+1. **并行请求全部题库搜索器**（本地 JSON / SQLite / 各类第三方题库 API）
+2. 题库查到答案 → 直接采用，**完全不请求 AI**；题库虽有返回但答案与本题选项对不上时，
+   视为没查到，继续往下走
+3. **并行请求全部 AI 答题器**，把各家答案按题型归一化后（选项字母、`不正确` 之类的表述
+   都会先还原）分组投票
+4. 票数达到 `ai_min_votes` 的答案排到最前，优先被采用；日志会记录
+   `AI 交叉对比: 2/3 一致 -> xxx`，TUI 上该结果后面显示 `(共识 2/3)`
+5. 各家答案互不相同（达不到票数）时，按 `ai_fallback` 决定是用第一个结果还是放弃作答
+   （放弃后该题走 fuzzer 兜底或计入未完成并导出）
+
+只配题库不配 AI、或只配 AI 不配题库都可以正常工作；单个搜索器请求异常不会影响同组的其他搜索器。
 
 ### 题库配置
 
@@ -243,6 +292,56 @@ Enncy 题库，使用前请注册并获取 Token 填写在配置文件中（第�
 柠檬题库，使用前请注册并获取 Token 填写在配置文件中（第三方题库）
 
 通过此 [链接](https://www.lemtk.xyz) 获取 Token
+
+### 大模型在线答题 (OpenAI 兼容接口)
+
+大模型在线答题，使用前请注册并获取 API Key 填写在配置文件中
+
+可以考虑使用**超高性价比新兴国产开源大模型** [DeepSeek](https://platform.deepseek.com/docs)，或任意 GPT 代理站点。
+
+特别注意，尽管国产大模型性价比极高且中文能力相当强，但**知识储备与专业领域的覆盖仍然有限**，作答结果建议自行抽查。
+
+常见服务商已内置 `base_url` 与默认模型，配置文件里只填 `api_key` 即可用：
+
+| `type` | 服务商 | 获取 Key | 默认模型 |
+| --- | --- | --- | --- |
+| `DeepSeekSearcher` | 深度求索 DeepSeek | <https://platform.deepseek.com> | `deepseek-v4-flash` |
+| `MoonshotSearcher` | 月之暗面 Kimi | <https://platform.moonshot.cn> | `moonshot-v1-8k` |
+| `QwenSearcher` | 阿里通义千问（百炼） | <https://bailian.console.aliyun.com> | `qwen-plus` |
+| `ZhipuSearcher` | 智谱 GLM | <https://open.bigmodel.cn> | `glm-4-flash` |
+| `SiliconFlowSearcher` | 硅基流动 | <https://cloud.siliconflow.cn> | `Qwen/Qwen2.5-7B-Instruct` |
+| `GeminiSearcher` | Google Gemini | <https://ai.google.dev> | `gemini-2.0-flash` |
+| `ArkSearcher` | 火山方舟（豆包） | <https://console.volcengine.com/ark> | 需填推理接入点 id (`ep-xxx`) |
+| `OllamaSearcher` | 本地 Ollama | 无需 Key | 需填已拉取的模型名 |
+
+```yaml
+searchers:
+  - type: DeepSeekSearcher
+    api_key: "sk-xxx"
+```
+
+模型名以服务商文档为准，预设模型下线时用 `model` 字段覆盖即可；上述服务商也可用
+`OpenAISearcher` + `provider` 字段等价配置。其余中转站、私有部署等任意 OpenAI 兼容服务，
+仍用 `OpenAISearcher` 自行填写 `base_url` 与 `model`。
+
+答题器会按题型自动追加作答格式要求（单选回复选项字母、多选回复字母连写、判断回复正确/错误、填空每空一行），
+并把模型返回的选项字母、`不正确` 之类的表述还原成 **题库后端** 约定的答案形式，因此模型无需输出选项原文即可命中。
+
+**深度思考默认开启并开到各服务商支持的最高档位**（DeepSeek / Kimi 为 `max`，OpenAI / Gemini 为 `high`，
+百炼、硅基流动、智谱、火山方舟按各自的参数风格开启），同时对思考时长做了限制：
+
+- `thinking_budget`（默认 2048）限制思考链的最大 token 数，百炼、硅基流动、Gemini 支持该参数
+- `timeout`（默认 60 秒）是思考时长的硬上限，超时会自动改用非思考模式重试该题
+- 模型不支持思考参数、或思考占满输出预算没留下答案时，同样会自动降级为非思考模式重试，
+  不会因为开了思考就答不了题
+- 不想思考可配置 `thinking: false`，想换档位可配置 `thinking_effort`
+
+各服务商的适配代码位于 `resolver/searcher/llm/` 下，**一个服务商一个文件**（`deepseek.py`、`qwen.py`、`zhipu.py` …），只声明接口地址、默认模型与思考参数；
+公共的请求重试、降级与答案归一化在 `base.py` / `answer.py`。某家接口有变动时只需改对应文件。
+
+其余可选配置见 `config.yml` 注释：`temperature`（留空自动：思考时不下发，非思考时为 0）、`max_tokens`、
+`max_retries`（网络错误与限速时指数退避重试）、`few_shot`（附带同题型作答示例）、
+`cache`（缓存同一道题的作答结果，重复题目不再重复计费）、`extra_body`（透传接口参数，优先级最高）。
 
 ## 📖Usage & Demo
 
